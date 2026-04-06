@@ -528,23 +528,42 @@ const AdminLogin = ({ onLogin }: { onLogin: (pass: string) => boolean }) => {
 
 export default function App() {
   const [posts, setPosts] = useState<Post[]>(() => {
-    const saved = localStorage.getItem('posts');
-    return saved ? JSON.parse(saved) : initialPosts;
+    try {
+      const saved = localStorage.getItem('posts');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error("에세이 데이터를 불러오는 중 오류가 발생했습니다.", e);
+    }
+    return initialPosts;
   });
 
   const [isAdmin, setIsAdmin] = useState(() => {
-    return localStorage.getItem('isAdmin') === 'true';
+    try {
+      return localStorage.getItem('isAdmin') === 'true';
+    } catch (e) {
+      return false;
+    }
   });
 
   useEffect(() => {
-    localStorage.setItem('posts', JSON.stringify(posts));
+    try {
+      localStorage.setItem('posts', JSON.stringify(posts));
+    } catch (e) {
+      console.error("에세이 데이터를 저장하는 중 오류가 발생했습니다.", e);
+    }
   }, [posts]);
 
   const handleLogin = (password: string) => {
-    // Default password is '2026'
     if (password === '2026') {
       setIsAdmin(true);
-      localStorage.setItem('isAdmin', 'true');
+      try {
+        localStorage.setItem('isAdmin', 'true');
+      } catch (e) {}
       return true;
     }
     return false;
@@ -552,7 +571,9 @@ export default function App() {
 
   const handleLogout = () => {
     setIsAdmin(false);
-    localStorage.removeItem('isAdmin');
+    try {
+      localStorage.removeItem('isAdmin');
+    } catch (e) {}
   };
 
   const handleSavePost = (newPost: Post) => {
