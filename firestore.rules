@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: posts
+    // Fields:
+    //   - title: string (required)
+    //   - author: string (required)
+    //   - content: string (required)
+    //   - excerpt: string (optional)
+    //   - date: string (required)
+    //   - thumbnail: string (optional)
+    //   - category: string (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      // For this simple app, we'll allow the user with the specified email to be admin
+      // and anyone who knows the password (handled in frontend) to write for now.
+      // In a real production app, we'd check a 'users' collection for roles.
+      // For now, let's allow public read and authenticated write (or just open for the demo if requested).
+      // The user asked for "everyone to see" and "admin to edit".
+      return isAuthenticated() && (request.auth.token.email == "heyonseo7@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isValidPost(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.author is string && data.author.size() > 0 && data.author.size() < 100 &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 50000 &&
+             data.category is string && data.category.size() > 0 && data.category.size() < 50;
+    }
+
+    match /posts/{postId} {
+      // Anyone can read posts
+      allow read: if true;
+      
+      // Only authenticated admins can create/update/delete
+      allow create: if isAdmin() && isValidPost(request.resource.data);
+      allow update: if isAdmin() && isValidPost(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}

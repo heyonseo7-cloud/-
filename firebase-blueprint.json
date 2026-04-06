@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "Post": {
+      "title": "에세이 포스트",
+      "description": "블로그에 게시된 에세이 정보",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "포스트 고유 ID" },
+        "title": { "type": "string", "description": "에세이 제목" },
+        "excerpt": { "type": "string", "description": "에세이 요약" },
+        "content": { "type": "string", "description": "에세이 본문 (Markdown)" },
+        "author": { "type": "string", "description": "작성자 이름" },
+        "date": { "type": "string", "description": "작성 날짜 (YYYY-MM-DD)" },
+        "thumbnail": { "type": "string", "description": "썸네일 이미지 URL" },
+        "category": { "type": "string", "description": "카테고리" }
+      },
+      "required": ["title", "author", "content", "date", "category"]
+    }
+  },
+  "firestore": {
+    "posts": {
+      "schema": "Post",
+      "description": "모든 에세이 포스트 컬렉션"
+    }
+  }
+}

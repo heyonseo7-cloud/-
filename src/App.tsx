@@ -11,12 +11,31 @@ import {
   Lock,
   Unlock,
   AlertTriangle,
-  X
+  X,
+  LogOut
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { siteConfig, initialPosts } from './config';
+import { siteConfig } from './config';
 import { Post } from './types';
 import { cn } from './lib/utils';
+import { 
+  db, 
+  auth, 
+  signInWithPopup, 
+  googleProvider, 
+  signOut,
+  handleFirestoreError,
+  OperationType
+} from './firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  query, 
+  orderBy 
+} from 'firebase/firestore';
 
 // --- Components ---
 
@@ -49,7 +68,7 @@ const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean, onClose:
   );
 };
 
-const Header = ({ isAdmin = false, onLogout }: { isAdmin?: boolean, onLogout?: () => void }) => {
+const Header = ({ user, onLogout }: { user: any, onLogout: () => void }) => {
   const [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
@@ -71,12 +90,12 @@ const Header = ({ isAdmin = false, onLogout }: { isAdmin?: boolean, onLogout?: (
         <nav className="hidden md:flex items-center space-x-8">
           <Link to="/" className="text-sm font-medium hover:opacity-50 transition-opacity">홈</Link>
           <Link to="/essays" className="text-sm font-medium hover:opacity-50 transition-opacity">에세이</Link>
-          {isAdmin && (
+          {user && (
             <>
               <Link to="/admin/new" className="text-sm font-medium hover:opacity-50 transition-opacity">글쓰기</Link>
               <button 
                 onClick={onLogout}
-                className="text-sm font-medium text-red-500 hover:opacity-50 transition-opacity"
+                className="flex items-center text-sm font-medium text-red-500 hover:opacity-50 transition-opacity"
               >
                 로그아웃
               </button>
@@ -84,9 +103,9 @@ const Header = ({ isAdmin = false, onLogout }: { isAdmin?: boolean, onLogout?: (
           )}
           <Link to="/admin" className={cn(
             "p-2 rounded-full transition-all",
-            isAdmin ? "bg-black text-white" : "hover:bg-black hover:text-white"
+            user ? "bg-black text-white" : "hover:bg-black hover:text-white"
           )}>
-            {isAdmin ? <Unlock size={18} /> : <Settings size={18} />}
+            {user ? <Unlock size={18} /> : <Settings size={18} />}
           </Link>
         </nav>
       </div>
@@ -467,17 +486,25 @@ const PostForm = ({
   );
 };
 
-const AdminLogin = ({ onLogin }: { onLogin: (pass: string) => boolean }) => {
+const AdminLogin = ({ onLogin }: { onLogin: (pass: string) => Promise<boolean> }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (onLogin(password)) {
-      setError(false);
-    } else {
+    setIsLoading(true);
+    setError(false);
+    try {
+      const success = await onLogin(password);
+      if (!success) {
+        setError(true);
+        setPassword('');
+      }
+    } catch (err) {
       setError(true);
-      setPassword('');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -502,11 +529,13 @@ const AdminLogin = ({ onLogin }: { onLogin: (pass: string) => boolean }) => {
             <input 
               type="password" 
               autoFocus
+              disabled={isLoading}
               value={password}
               onChange={e => setPassword(e.target.value)}
               className={cn(
                 "w-full px-4 py-4 border outline-none transition-all font-mono",
-                error ? "border-red-500 bg-red-50" : "border-black/10 focus:border-black"
+                error ? "border-red-500 bg-red-50" : "border-black/10 focus:border-black",
+                isLoading && "opacity-50 cursor-not-allowed"
               )}
               placeholder="••••••••"
             />
@@ -514,9 +543,13 @@ const AdminLogin = ({ onLogin }: { onLogin: (pass: string) => boolean }) => {
           </div>
           <button 
             type="submit"
-            className="w-full bg-black text-white py-4 font-bold hover:opacity-80 transition-opacity"
+            disabled={isLoading}
+            className={cn(
+              "w-full bg-black text-white py-4 font-bold hover:opacity-80 transition-opacity flex items-center justify-center",
+              isLoading && "opacity-50 cursor-not-allowed"
+            )}
           >
-            접속하기
+            {isLoading ? "접속 중..." : "접속하기"}
           </button>
         </form>
       </motion.div>
@@ -527,93 +560,101 @@ const AdminLogin = ({ onLogin }: { onLogin: (pass: string) => boolean }) => {
 // --- Main App ---
 
 export default function App() {
-  const [posts, setPosts] = useState<Post[]>(() => {
-    try {
-      const saved = localStorage.getItem('posts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.error("에세이 데이터를 불러오는 중 오류가 발생했습니다.", e);
-    }
-    return initialPosts;
-  });
-
-  const [isAdmin, setIsAdmin] = useState(() => {
-    try {
-      return localStorage.getItem('isAdmin') === 'true';
-    } catch (e) {
-      return false;
-    }
-  });
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [user, setUser] = useState<any>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('posts', JSON.stringify(posts));
-    } catch (e) {
-      console.error("에세이 데이터를 저장하는 중 오류가 발생했습니다.", e);
-    }
-  }, [posts]);
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      setUser(user);
+      setIsAuthReady(true);
+    });
 
-  const handleLogin = (password: string) => {
+    const postsQuery = query(collection(db, 'posts'), orderBy('date', 'desc'));
+    const unsubscribePosts = onSnapshot(postsQuery, (snapshot) => {
+      const fetchedPosts = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as Post[];
+      setPosts(fetchedPosts);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'posts');
+    });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribePosts();
+    };
+  }, []);
+
+  const handleLogin = async (password: string) => {
+    // We still use the password '2026' for UI access, 
+    // but we'll also sign in with Google for Firebase security
     if (password === '2026') {
-      setIsAdmin(true);
       try {
-        localStorage.setItem('isAdmin', 'true');
-      } catch (e) {}
-      return true;
+        await signInWithPopup(auth, googleProvider);
+        return true;
+      } catch (error) {
+        console.error("Login failed", error);
+        return false;
+      }
     }
     return false;
   };
 
-  const handleLogout = () => {
-    setIsAdmin(false);
+  const handleLogout = async () => {
     try {
-      localStorage.removeItem('isAdmin');
-    } catch (e) {}
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
   };
 
-  const handleSavePost = (newPost: Post) => {
-    setPosts(prev => {
-      const index = prev.findIndex(p => p.id === newPost.id);
-      if (index > -1) {
-        const updated = [...prev];
-        updated[index] = newPost;
-        return updated;
-      }
-      return [newPost, ...prev];
-    });
+  const handleSavePost = async (newPost: Post) => {
+    try {
+      const postRef = doc(db, 'posts', newPost.id);
+      await setDoc(postRef, newPost);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `posts/${newPost.id}`);
+    }
   };
 
-  const handleDeletePost = (id: string) => {
-    setPosts(prev => prev.filter(p => p.id !== id));
+  const handleDeletePost = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'posts', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `posts/${id}`);
+    }
   };
+
+  if (!isAuthReady) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
 
   return (
     <Router>
       <div className="min-h-screen flex flex-col selection:bg-black selection:text-white">
-        <Header isAdmin={isAdmin} onLogout={handleLogout} />
+        <Header user={user} onLogout={handleLogout} />
         
         <main className="flex-grow">
-          <Routes>
-            <Route path="/" element={<Home posts={posts} />} />
-            <Route path="/essays" element={<Home posts={posts} />} />
-            <Route path="/post/:id" element={<PostDetail posts={posts} />} />
-            
-            {/* Admin Routes */}
-            <Route path="/admin" element={
-              isAdmin ? <AdminDashboard posts={posts} onDelete={handleDeletePost} /> : <AdminLogin onLogin={handleLogin} />
-            } />
-            <Route path="/admin/new" element={
-              isAdmin ? <PostForm onSave={handleSavePost} /> : <AdminLogin onLogin={handleLogin} />
-            } />
-            <Route path="/admin/edit/:id" element={
-              isAdmin ? <EditWrapper posts={posts} onSave={handleSavePost} /> : <AdminLogin onLogin={handleLogin} />
-            } />
-          </Routes>
+          <AnimatePresence mode="wait">
+            <Routes>
+              <Route path="/" element={<Home posts={posts} />} />
+              <Route path="/essays" element={<Home posts={posts} />} />
+              <Route path="/post/:id" element={<PostDetail posts={posts} />} />
+              
+              {/* Admin Routes */}
+              <Route path="/admin" element={
+                user ? <AdminDashboard posts={posts} onDelete={handleDeletePost} /> : <AdminLogin onLogin={handleLogin} />
+              } />
+              <Route path="/admin/new" element={
+                user ? <PostForm onSave={handleSavePost} /> : <AdminLogin onLogin={handleLogin} />
+              } />
+              <Route path="/admin/edit/:id" element={
+                user ? <EditWrapper posts={posts} onSave={handleSavePost} /> : <AdminLogin onLogin={handleLogin} />
+              } />
+            </Routes>
+          </AnimatePresence>
         </main>
 
         <Footer />
