@@ -588,9 +588,9 @@ export default function App() {
   }, []);
 
   const handleLogin = async (password: string) => {
-    // We still use the password '2026' for UI access, 
+    // We still use the password '3824' for UI access, 
     // but we'll also sign in with Google for Firebase security
-    if (password === '2026') {
+    if (password === '3824') {
       try {
         await signInWithPopup(auth, googleProvider);
         return true;
