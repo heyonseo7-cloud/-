@@ -35,17 +35,16 @@ service cloud.firestore {
       return data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
              data.author is string && data.author.size() > 0 && data.author.size() < 100 &&
              data.content is string && data.content.size() > 0 && data.content.size() < 50000 &&
-             data.category is string && data.category.size() > 0 && data.category.size() < 50;
+             data.category is string && data.category.size() > 0 && data.category.size() < 50 &&
+             data.password is string && data.password.size() > 0 && data.password.size() < 100;
     }
 
     match /posts/{postId} {
-      // Anyone can read posts
+      // Anyone can read and write posts for this anonymous board system
       allow read: if true;
-      
-      // Only authenticated admins can create/update/delete
-      allow create: if isAdmin() && isValidPost(request.resource.data);
-      allow update: if isAdmin() && isValidPost(request.resource.data);
-      allow delete: if isAdmin();
+      allow create: if isValidPost(request.resource.data);
+      allow update: if isValidPost(request.resource.data);
+      allow delete: if true;
     }
   }
 }

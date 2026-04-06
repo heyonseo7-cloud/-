@@ -12,9 +12,10 @@
         "author": { "type": "string", "description": "작성자 이름" },
         "date": { "type": "string", "description": "작성 날짜 (YYYY-MM-DD)" },
         "thumbnail": { "type": "string", "description": "썸네일 이미지 URL" },
-        "category": { "type": "string", "description": "카테고리" }
+        "category": { "type": "string", "description": "카테고리" },
+        "password": { "type": "string", "description": "게시물 수정/삭제용 비밀번호" }
       },
-      "required": ["title", "author", "content", "date", "category"]
+      "required": ["title", "author", "content", "date", "category", "password"]
     }
   },
   "firestore": {

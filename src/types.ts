@@ -7,6 +7,7 @@ export interface Post {
   date: string;
   thumbnail: string;
   category: string;
+  password?: string;
 }
 
 export interface SiteConfig {

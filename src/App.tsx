@@ -12,7 +12,7 @@ import {
   Unlock,
   AlertTriangle,
   X,
-  LogOut
+  Key
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { siteConfig } from './config';
@@ -20,10 +20,6 @@ import { Post } from './types';
 import { cn } from './lib/utils';
 import { 
   db, 
-  auth, 
-  signInWithPopup, 
-  googleProvider, 
-  signOut,
   handleFirestoreError,
   OperationType
 } from './firebase';
@@ -68,7 +64,7 @@ const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean, onClose:
   );
 };
 
-const Header = ({ user, onLogout }: { user: any, onLogout: () => void }) => {
+const Header = () => {
   const [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
@@ -90,22 +86,9 @@ const Header = ({ user, onLogout }: { user: any, onLogout: () => void }) => {
         <nav className="hidden md:flex items-center space-x-8">
           <Link to="/" className="text-sm font-medium hover:opacity-50 transition-opacity">홈</Link>
           <Link to="/essays" className="text-sm font-medium hover:opacity-50 transition-opacity">에세이</Link>
-          {user && (
-            <>
-              <Link to="/admin/new" className="text-sm font-medium hover:opacity-50 transition-opacity">글쓰기</Link>
-              <button 
-                onClick={onLogout}
-                className="flex items-center text-sm font-medium text-red-500 hover:opacity-50 transition-opacity"
-              >
-                로그아웃
-              </button>
-            </>
-          )}
-          <Link to="/admin" className={cn(
-            "p-2 rounded-full transition-all",
-            user ? "bg-black text-white" : "hover:bg-black hover:text-white"
-          )}>
-            {user ? <Unlock size={18} /> : <Settings size={18} />}
+          <Link to="/admin/new" className="text-sm font-medium hover:opacity-50 transition-opacity">글쓰기</Link>
+          <Link to="/admin" className="p-2 rounded-full hover:bg-black hover:text-white transition-all">
+            <Settings size={18} />
           </Link>
         </nav>
       </div>
@@ -253,14 +236,38 @@ const PostDetail = ({ posts }: { posts: Post[] }) => {
 
 const AdminDashboard = ({ posts, onDelete }: { posts: Post[], onDelete: (id: string) => void }) => {
   const navigate = useNavigate();
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [actionType, setActionType] = useState<'edit' | 'delete' | null>(null);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [error, setError] = useState(false);
+
+  const handleAction = (type: 'edit' | 'delete', post: Post) => {
+    setActionType(type);
+    setSelectedPost(post);
+    setPasswordInput('');
+    setError(false);
+  };
+
+  const verifyPassword = () => {
+    if (selectedPost && passwordInput === selectedPost.password) {
+      if (actionType === 'edit') {
+        navigate(`/admin/edit/${selectedPost.id}`);
+      } else if (actionType === 'delete') {
+        onDelete(selectedPost.id);
+      }
+      setActionType(null);
+      setSelectedPost(null);
+    } else {
+      setError(true);
+    }
+  };
 
   return (
     <div className="pt-40 pb-20 container mx-auto px-6">
       <div className="flex justify-between items-end mb-12">
         <div>
-          <h2 className="text-4xl font-bold tracking-tighter mb-2">관리자 대시보드</h2>
-          <p className="opacity-60">에세이 콘텐츠를 관리하고 새로운 글을 작성하세요.</p>
+          <h2 className="text-4xl font-bold tracking-tighter mb-2">에세이 관리</h2>
+          <p className="opacity-60">작성한 에세이를 수정하거나 삭제할 수 있습니다.</p>
         </div>
         <Link 
           to="/admin/new" 
@@ -295,13 +302,13 @@ const AdminDashboard = ({ posts, onDelete }: { posts: Post[], onDelete: (id: str
                 <td className="px-6 py-4 text-right">
                   <div className="flex justify-end space-x-2">
                     <button 
-                      onClick={() => navigate(`/admin/edit/${post.id}`)}
+                      onClick={() => handleAction('edit', post)}
                       className="p-2 hover:bg-black hover:text-white rounded-full transition-all"
                     >
                       <Edit2 size={16} />
                     </button>
                     <button 
-                      onClick={() => setDeleteId(post.id)}
+                      onClick={() => handleAction('delete', post)}
                       className="p-2 hover:bg-red-500 hover:text-white rounded-full transition-all"
                     >
                       <Trash2 size={16} />
@@ -315,35 +322,52 @@ const AdminDashboard = ({ posts, onDelete }: { posts: Post[], onDelete: (id: str
       </div>
 
       <Modal 
-        isOpen={!!deleteId} 
-        onClose={() => setDeleteId(null)} 
-        title="에세이 삭제"
+        isOpen={!!actionType} 
+        onClose={() => setActionType(null)} 
+        title={actionType === 'edit' ? "에세이 수정" : "에세이 삭제"}
       >
         <div className="space-y-6">
-          <div className="flex items-start space-x-4 p-4 bg-red-50 border border-red-100 rounded-lg">
-            <AlertTriangle className="text-red-500 shrink-0" size={24} />
-            <p className="text-sm text-red-800 leading-relaxed">
-              정말로 이 에세이를 삭제하시겠습니까? <br />
-              이 작업은 되돌릴 수 없으며 모든 데이터가 영구적으로 삭제됩니다.
-            </p>
+          <div className="flex items-start space-x-4 p-4 bg-gray-50 border border-black/5 rounded-lg">
+            <Key className="text-black shrink-0" size={24} />
+            <div>
+              <p className="text-sm font-bold mb-1">비밀번호 확인</p>
+              <p className="text-xs opacity-60 leading-relaxed">
+                게시물 작성 시 설정한 비밀번호를 입력해주세요.
+              </p>
+            </div>
           </div>
+
+          <div className="space-y-2">
+            <input 
+              type="password" 
+              autoFocus
+              value={passwordInput}
+              onChange={e => setPasswordInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && verifyPassword()}
+              className={cn(
+                "w-full px-4 py-3 border outline-none transition-all font-mono",
+                error ? "border-red-500 bg-red-50" : "border-black/10 focus:border-black"
+              )}
+              placeholder="비밀번호 입력"
+            />
+            {error && <p className="text-xs text-red-500 font-medium">비밀번호가 일치하지 않습니다.</p>}
+          </div>
+
           <div className="flex space-x-3">
             <button 
-              onClick={() => setDeleteId(null)}
+              onClick={() => setActionType(null)}
               className="flex-1 px-6 py-3 border border-black/10 font-bold text-sm hover:bg-gray-50 transition-colors"
             >
               취소
             </button>
             <button 
-              onClick={() => {
-                if (deleteId) {
-                  onDelete(deleteId);
-                  setDeleteId(null);
-                }
-              }}
-              className="flex-1 px-6 py-3 bg-red-500 text-white font-bold text-sm hover:bg-red-600 transition-colors"
+              onClick={verifyPassword}
+              className={cn(
+                "flex-1 px-6 py-3 text-white font-bold text-sm transition-colors",
+                actionType === 'edit' ? "bg-black hover:opacity-80" : "bg-red-500 hover:bg-red-600"
+              )}
             >
-              삭제하기
+              확인
             </button>
           </div>
         </div>
@@ -367,7 +391,8 @@ const PostForm = ({
     excerpt: '',
     content: '',
     thumbnail: 'https://picsum.photos/seed/new-post/800/600',
-    date: new Date().toISOString().split('T')[0]
+    date: new Date().toISOString().split('T')[0],
+    password: ''
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -386,7 +411,7 @@ const PostForm = ({
           onClick={() => navigate('/admin')}
           className="flex items-center text-sm font-medium opacity-60 hover:opacity-100 mb-8 transition-opacity"
         >
-          <ArrowLeft size={16} className="mr-2" /> 대시보드로 돌아가기
+          <ArrowLeft size={16} className="mr-2" /> 목록으로 돌아가기
         </button>
         <h2 className="text-4xl font-bold tracking-tighter">
           {initialData ? '에세이 수정' : '새 에세이 작성'}
@@ -432,19 +457,31 @@ const PostForm = ({
             />
           </div>
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider opacity-60">썸네일 이미지 URL</label>
-            <div className="flex space-x-2">
-              <input 
-                type="url" 
-                required
-                value={formData.thumbnail}
-                onChange={e => setFormData({...formData, thumbnail: e.target.value})}
-                className="flex-1 px-4 py-3 border border-black/10 focus:border-black outline-none transition-colors"
-                placeholder="https://..."
-              />
-              <div className="w-12 h-12 bg-gray-100 border border-black/10 overflow-hidden">
-                <img src={formData.thumbnail} alt="Preview" className="w-full h-full object-cover" />
-              </div>
+            <label className="text-xs font-bold uppercase tracking-wider opacity-60">수정/삭제 비밀번호</label>
+            <input 
+              type="password" 
+              required
+              value={formData.password}
+              onChange={e => setFormData({...formData, password: e.target.value})}
+              className="w-full px-4 py-3 border border-black/10 focus:border-black outline-none transition-colors font-mono"
+              placeholder="비밀번호를 설정하세요"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold uppercase tracking-wider opacity-60">썸네일 이미지 URL</label>
+          <div className="flex space-x-2">
+            <input 
+              type="url" 
+              required
+              value={formData.thumbnail}
+              onChange={e => setFormData({...formData, thumbnail: e.target.value})}
+              className="flex-1 px-4 py-3 border border-black/10 focus:border-black outline-none transition-colors"
+              placeholder="https://..."
+            />
+            <div className="w-12 h-12 bg-gray-100 border border-black/10 overflow-hidden">
+              <img src={formData.thumbnail} alt="Preview" className="w-full h-full object-cover" />
             </div>
           </div>
         </div>
@@ -486,90 +523,13 @@ const PostForm = ({
   );
 };
 
-const AdminLogin = ({ onLogin }: { onLogin: (pass: string) => Promise<boolean> }) => {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError(false);
-    try {
-      const success = await onLogin(password);
-      if (!success) {
-        setError(true);
-        setPassword('');
-      }
-    } catch (err) {
-      setError(true);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="pt-40 pb-20 flex items-center justify-center container mx-auto px-6">
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md p-10 border border-black/10 bg-white shadow-xl"
-      >
-        <div className="flex flex-col items-center mb-10">
-          <div className="w-16 h-16 bg-black text-white rounded-full flex items-center justify-center mb-6">
-            <Lock size={28} />
-          </div>
-          <h2 className="text-3xl font-bold tracking-tighter">관리자 로그인</h2>
-          <p className="text-sm opacity-60 mt-2">비밀번호를 입력하여 접속하세요.</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider opacity-60">비밀번호</label>
-            <input 
-              type="password" 
-              autoFocus
-              disabled={isLoading}
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className={cn(
-                "w-full px-4 py-4 border outline-none transition-all font-mono",
-                error ? "border-red-500 bg-red-50" : "border-black/10 focus:border-black",
-                isLoading && "opacity-50 cursor-not-allowed"
-              )}
-              placeholder="••••••••"
-            />
-            {error && <p className="text-xs text-red-500 font-medium">비밀번호가 일치하지 않습니다.</p>}
-          </div>
-          <button 
-            type="submit"
-            disabled={isLoading}
-            className={cn(
-              "w-full bg-black text-white py-4 font-bold hover:opacity-80 transition-opacity flex items-center justify-center",
-              isLoading && "opacity-50 cursor-not-allowed"
-            )}
-          >
-            {isLoading ? "접속 중..." : "접속하기"}
-          </button>
-        </form>
-      </motion.div>
-    </div>
-  );
-};
-
 // --- Main App ---
 
 export default function App() {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [user, setUser] = useState<any>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-      setUser(user);
-      setIsAuthReady(true);
-    });
-
     const postsQuery = query(collection(db, 'posts'), orderBy('date', 'desc'));
     const unsubscribePosts = onSnapshot(postsQuery, (snapshot) => {
       const fetchedPosts = snapshot.docs.map(doc => ({
@@ -577,38 +537,15 @@ export default function App() {
         id: doc.id
       })) as Post[];
       setPosts(fetchedPosts);
+      setIsLoaded(true);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'posts');
     });
 
     return () => {
-      unsubscribeAuth();
       unsubscribePosts();
     };
   }, []);
-
-  const handleLogin = async (password: string) => {
-    // We still use the password '3824' for UI access, 
-    // but we'll also sign in with Google for Firebase security
-    if (password === '3824') {
-      try {
-        await signInWithPopup(auth, googleProvider);
-        return true;
-      } catch (error) {
-        console.error("Login failed", error);
-        return false;
-      }
-    }
-    return false;
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Logout failed", error);
-    }
-  };
 
   const handleSavePost = async (newPost: Post) => {
     try {
@@ -627,14 +564,14 @@ export default function App() {
     }
   };
 
-  if (!isAuthReady) {
+  if (!isLoaded) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
   return (
     <Router>
       <div className="min-h-screen flex flex-col selection:bg-black selection:text-white">
-        <Header user={user} onLogout={handleLogout} />
+        <Header />
         
         <main className="flex-grow">
           <AnimatePresence mode="wait">
@@ -643,16 +580,10 @@ export default function App() {
               <Route path="/essays" element={<Home posts={posts} />} />
               <Route path="/post/:id" element={<PostDetail posts={posts} />} />
               
-              {/* Admin Routes */}
-              <Route path="/admin" element={
-                user ? <AdminDashboard posts={posts} onDelete={handleDeletePost} /> : <AdminLogin onLogin={handleLogin} />
-              } />
-              <Route path="/admin/new" element={
-                user ? <PostForm onSave={handleSavePost} /> : <AdminLogin onLogin={handleLogin} />
-              } />
-              <Route path="/admin/edit/:id" element={
-                user ? <EditWrapper posts={posts} onSave={handleSavePost} /> : <AdminLogin onLogin={handleLogin} />
-              } />
+              {/* Manage Routes */}
+              <Route path="/admin" element={<AdminDashboard posts={posts} onDelete={handleDeletePost} />} />
+              <Route path="/admin/new" element={<PostForm onSave={handleSavePost} />} />
+              <Route path="/admin/edit/:id" element={<EditWrapper posts={posts} onSave={handleSavePost} />} />
             </Routes>
           </AnimatePresence>
         </main>
@@ -665,7 +596,66 @@ export default function App() {
 
 const EditWrapper = ({ posts, onSave }: { posts: Post[], onSave: (post: Post) => void }) => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const post = posts.find(p => p.id === id);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [isVerified, setIsVerified] = useState(false);
+  const [error, setError] = useState(false);
+
   if (!post) return <div className="pt-40 text-center">포스트를 찾을 수 없습니다.</div>;
+
+  if (!isVerified) {
+    return (
+      <div className="pt-40 pb-20 flex items-center justify-center container mx-auto px-6">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md p-10 border border-black/10 bg-white shadow-xl"
+        >
+          <div className="flex flex-col items-center mb-10">
+            <div className="w-16 h-16 bg-black text-white rounded-full flex items-center justify-center mb-6">
+              <Key size={28} />
+            </div>
+            <h2 className="text-3xl font-bold tracking-tighter">비밀번호 확인</h2>
+            <p className="text-sm opacity-60 mt-2">이 에세이를 수정하려면 비밀번호가 필요합니다.</p>
+          </div>
+
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-wider opacity-60">비밀번호</label>
+              <input 
+                type="password" 
+                autoFocus
+                value={passwordInput}
+                onChange={e => setPasswordInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (passwordInput === post.password ? setIsVerified(true) : setError(true))}
+                className={cn(
+                  "w-full px-4 py-4 border outline-none transition-all font-mono",
+                  error ? "border-red-500 bg-red-50" : "border-black/10 focus:border-black"
+                )}
+                placeholder="••••••••"
+              />
+              {error && <p className="text-xs text-red-500 font-medium">비밀번호가 일치하지 않습니다.</p>}
+            </div>
+            <div className="flex space-x-3">
+              <button 
+                onClick={() => navigate('/admin')}
+                className="flex-1 px-6 py-4 border border-black/10 font-bold text-sm hover:bg-gray-50 transition-colors"
+              >
+                취소
+              </button>
+              <button 
+                onClick={() => passwordInput === post.password ? setIsVerified(true) : setError(true)}
+                className="flex-1 bg-black text-white py-4 font-bold hover:opacity-80 transition-opacity"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return <PostForm onSave={onSave} initialData={post} />;
 };
